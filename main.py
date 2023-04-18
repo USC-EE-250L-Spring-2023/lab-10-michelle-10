@@ -6,13 +6,24 @@ import threading
 import pandas as pd
 import requests
 import plotly.express as px
+import json
 
 def generate_data() -> List[int]:
     """Generate some random data."""
     return np.random.randint(100, 10000, 1000).tolist()
 
 def process1(data: List[int]) -> List[int]:
-    """TODO: Document this function. What does it do? What are the inputs and outputs?"""
+    """TODO: Document this function. What does it do? What are the inputs and outputs?
+    
+    Summary: Finds the next largest prime number in a data list by checking if the value, which is represented
+    by 'x', is divisible by any number from 2- (x-1). The function all() returns TRUE if the remainders are non-zero,
+    i.e 'x' is a prime number. If it's a prime number, then the if-statement is TRUE and returns 'x'.
+    
+    Args: data is a list of int values
+    
+    Returns: returns a list of int prime values"""
+    
+    
     def foo(x):
         """Find the next largest prime number."""
         while True:
@@ -22,9 +33,18 @@ def process1(data: List[int]) -> List[int]:
     return [foo(x) for x in data]
 
 def process2(data: List[int]) -> List[int]:
-    """TODO: Document this function. What does it do? What are the inputs and outputs?"""
+    """TODO: Document this function. What does it do? What are the inputs and outputs?
+    
+    Summary: Finds perfect squares in the data list by taking the square root of 'x' and then making the result an int value.
+    Then, it squares the int value, and if it equals 'x' then it's a perfect square and returns the value 'x'.
+    
+    Args: data is a list of int values
+    
+    Returns: returns a list of int prime values"""
+    
+    
     def foo(x):
-        """Find the next largest prime number."""
+        """Find the next largest prime number.""" #is function meant to find perfect squares instead?
         while True:
             x += 1
             if int(np.sqrt(x)) ** 2 == x:
@@ -35,7 +55,7 @@ def final_process(data1: List[int], data2: List[int]) -> List[int]:
     """TODO: Document this function. What does it do? What are the inputs and outputs?"""
     return np.mean([x - y for x, y in zip(data1, data2)])
 
-offload_url = 'http://192.168.4.74:5000' # TODO: Change this to the IP address of your server
+offload_url = 'http://192.168.1.14:5000' # TODO: Change this to the IP address of your server
 
 def run(offload: Optional[str] = None) -> float:
     """Run the program, offloading the specified function(s) to the server.
@@ -47,19 +67,26 @@ def run(offload: Optional[str] = None) -> float:
         float: the final result of the program.
     """
     data = generate_data()
-    if offload is None: # in this case, we run the program locally
+    #lock = threading.Lock()
+    
+    if offload == 'none': # in this case, we run the program locally
         data1 = process1(data)
         data2 = process2(data)
     elif offload == 'process1':
-        data1 = None
-        def offload_process1(data):
-            nonlocal data1
+    
+        def offload_process1(mydata):
+            nonlocal data1  
             # TODO: Send a POST request to the server with the input data
-            data1 = response.json()
-        thread = threading.Thread(target=offload_process1, args=(data,))
+            message1 = requests.post(f"{offload_url}/process1", json=mydata)
+            #print("status code: ", message1.status_code)
+            data1 = message1.json()
+            return data1
+            
+        thread = threading.Thread(target=offload_process1, args=(data,)) 
         thread.start()
         data2 = process2(data)
-        thread.join()
+        thread.join(2)
+        
         # Question 2: Why do we need to join the thread here?
         # Question 3: Are the processing functions executing in parallel or just concurrently? What is the difference?
         #   See this article: https://oxylabs.io/blog/concurrency-vs-parallelism
@@ -67,10 +94,26 @@ def run(offload: Optional[str] = None) -> float:
         #   Make sure to cite any sources you use to answer this question.
     elif offload == 'process2':
         # TODO: Implement this case
-        pass
+        def offload_process2(mydata):
+        	nonlocal data2
+        	#Send a POST request to the server with the input data
+        	message2 = requests.post(f"{offload_url}/process2", json=mydata)
+        	data2 = message2.json()
+        	return data2
+        	
+        thread = threading.Thread(target=offload_process2, args=(data,))
+        thread.start()
+        data1 = process1(data)
+        thread.join(2)
+
     elif offload == 'both':
         # TODO: Implement this case
-        pass
+        #Send a POST request to the server with the input data
+        message1 = requests.post(f"{offload_url}/process1", json=data)
+        message2 = requests.post(f"{offload_url}/process2", json=data)
+        data1 = message1.json()
+        data2 = message2.json()
+        
 
     ans = final_process(data1, data2)
     return ans 
@@ -79,15 +122,37 @@ def main():
     # TODO: Run the program 5 times for each offloading mode, and record the total execution time
     #   Compute the mean and standard deviation of the execution times
     #   Hint: store the results in a pandas DataFrame, use previous labs as a reference
-    
-    #test
-
+	modes = ['none', 'both', 'process1','process2']
+	data = []
+	times = []
+	
+	for mode in modes:
+		for i in range(5): #range = 0-4
+			#start time
+			start = time.perf_counter() 
+			
+			#run offloading mode
+			answer = run(mode)
+			
+			#end time
+			end = time.perf_counter()
+			execution_time = (end-start) * 1000 #milliseconds #where does total_seconds() come from?
+			times.append(execution_time)
+		time_mean = np.mean(times)
+		time_std = np.std(times)
+		
+		data.append([mode, time_mean, time_std])
+	
+	df = pd.DataFrame(data, columns = ['mode','time_mean','time_std'])
 
     # TODO: Plot makespans (total execution time) as a bar chart with error bars
     # Make sure to include a title and x and y labels
+	fig = px.bar (df, x = "mode", y = "time_mean", error_y = "time_std", labels = {"mode":"Offload Mode", "time_mean":"Time Mean (ms)"}, title= "Makespans (total execution time)")
+	#fig.show()
 
 
     # TODO: save plot to "makespan.png"
+	fig.write_image("makespan.png")
 
 
     # Question 4: What is the best offloading mode? Why do you think that is?
